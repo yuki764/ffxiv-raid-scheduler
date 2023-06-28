@@ -1,0 +1,36 @@
+image:
+  repository: gcr.io/neigepluie/ffxiv-raid-scheduler
+  pullPolicy: IfNotPresent
+  # Overrides the image tag whose default is the chart appVersion.
+  tag: ""
+
+# time to start job. default is 3:30 UTC (12:30 JST)
+cron:
+  hour: 3
+  minute: 30
+
+# Service Account for pods
+# Note: Spreadsheet API needs to authenticate as some Google prinsipal
+serviceAccountName: "gsa-nobody"
+
+# job container resources
+resources:
+  requests:
+    cpu: 200m
+    memory: 128Mi
+  limits:
+    cpu: 200m
+    memory: 128Mi
+
+# timezone when caluculating schedule
+timezone: Asia/Tokyo
+
+# Discord configurations
+discord:
+  guild_id: "1111111111111111111"
+  event_channel_id: "2222222222222222222"
+  notification_channel_id: "3333333333333333333"
+  bot_token: "TOKEN.EXAMPLE"
+
+# Google Spreadsheet configurations
+spreadsheet_id: "Example"

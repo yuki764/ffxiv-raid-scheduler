@@ -1,0 +1,36 @@
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: {{ .Release.Name }}
+spec:
+  schedule: "{{ .Values.cron.minute }} {{ .Values.cron.hour }} * * *"
+  concurrencyPolicy: Forbid
+  jobTemplate:
+    spec:
+      template:
+        spec:
+          {{- if .Values.serviceAccountName }}
+          serviceAccountName: {{ .Values.serviceAccountName }}
+          {{- end }}
+          containers:
+          - name: scheduler
+            image: "{{ .Values.image.repository }}:{{ .Values.image.tag | default .Chart.AppVersion }}"
+            env:
+            - name: TZ
+              value: {{ .Values.timezone | quote }}
+            - name: DISCORD_GUILD_ID
+              value: {{ .Values.discord.guild_id | quote }}
+            - name: DISCORD_EVENT_CHANNEL_ID
+              value: {{ .Values.discord.event_channel_id | quote }}
+            - name: DISCORD_NOTIFICATION_CHANNEL_ID
+              value: {{ .Values.discord.notification_channel_id | quote }}
+            {{- range tuple "DISCORD_BOT_TOKEN" "SPREADSHEET_ID" }}
+            - name: {{ . }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Release.Name }}-config
+                  key: {{ lower . }}
+            {{- end }}
+            resources: {{ toYaml .Values.resources | nindent 14 }}
+          restartPolicy: OnFailure
