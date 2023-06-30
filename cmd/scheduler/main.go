@@ -15,6 +15,8 @@ type duty struct {
 	Title string
 	Desc  string
 }
+
+// https://discord.com/developers/docs/resources/guild-scheduled-event
 type event struct {
 	Id                 string `json:"id,omitempty"`
 	Name               string `json:"name"`
@@ -69,7 +71,7 @@ append:
 
 		for _, evt := range existingEvents {
 			if timestamp == evt.ScheduledStartTime {
-				println("exists:", timestamp)
+				fmt.Println("exists:", timestamp)
 				if timestamp == todayTime.Format(DiscordISO8601) {
 					if err := notifyEventToDiscordChannel(discodeAuthHeader, discordNotificationChannelId, evt); err != nil {
 						panic(err)
@@ -79,7 +81,7 @@ append:
 			}
 		}
 
-		println("append", timestamp)
+		fmt.Println("append:", timestamp)
 
 		b := new(bytes.Buffer)
 		err := json.NewEncoder(b).Encode(event{
@@ -105,7 +107,10 @@ append:
 			panic(err)
 		}
 
-		println("append:", resp.Status)
+		fmt.Println("append:", resp.Status)
+
+		// wait in order to avoid rate limiting
+		time.Sleep(3 * time.Second)
 
 		if timestamp == todayTime.Format(DiscordISO8601) {
 			evt := event{}
@@ -128,7 +133,7 @@ cleanup:
 			}
 		}
 
-		println("cleanup: " + existingEvt.Id)
+		fmt.Println("cleanup:", existingEvt.Id)
 
 		// if an existing event is not active (fetched from Spreadsheet currently), deleting event
 		req, err := http.NewRequest("DELETE", scheduledEventsUrl+"/"+existingEvt.Id, nil)
@@ -143,7 +148,10 @@ cleanup:
 			panic(err)
 		}
 
-		println("cleanup:", resp.Status)
+		fmt.Println("cleanup:", resp.Status)
+
+		// wait in order to avoid rate limiting
+		time.Sleep(3 * time.Second)
 	}
 }
 
@@ -170,7 +178,7 @@ func notifyEventToDiscordChannel(authHeader string, notificationChannelId string
 	if err != nil {
 		return err
 	}
-	println("notify:", resp.Status)
+	fmt.Println("notify:", resp.Status)
 
 	return nil
 }
