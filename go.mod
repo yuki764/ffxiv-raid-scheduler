@@ -1,4 +1,4 @@
-module go.neigepluie.net/discord-ffxiv-raid-scheduler
+module go.neigepluie.net/ffxiv-raid-scheduler
 
 go 1.20
 
