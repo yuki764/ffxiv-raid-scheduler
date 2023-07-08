@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -11,13 +10,15 @@ import (
 	"google.golang.org/api/sheets/v4"
 )
 
-func getThisAndNextMonthSchedules(ctx context.Context, spreadsheetId string) ([]duty, time.Time) {
-	srv, err := sheets.NewService(ctx)
-	if err != nil {
-		panic(err)
-	}
+type duty struct {
+	Title     string
+	Desc      string
+	StartTime time.Time
+	EndTime   time.Time
+}
 
-	tz, err := time.LoadLocation(os.Getenv("TZ"))
+func getThisAndNextMonthSchedules(ctx context.Context, spreadsheetId string, tz *time.Location) ([]duty, time.Time) {
+	srv, err := sheets.NewService(ctx)
 	if err != nil {
 		panic(err)
 	}
@@ -81,17 +82,22 @@ func getThisAndNextMonthSchedules(ctx context.Context, spreadsheetId string) ([]
 					if err != nil {
 						panic(err)
 					}
-					sch.Date = time.Date(month.Year, time.Month(month.Month), day, 21, 50, 0, 0, tz).UTC()
+					sch.StartTime = time.Date(month.Year, time.Month(month.Month), day, 21, 50, 0, 0, tz).UTC()
+					sch.EndTime = time.Date(month.Year, time.Month(month.Month), day, 23, 50, 0, 0, tz).UTC()
 				case 3:
 					if c == "有り" {
 						active = true
 					}
 				case 12:
-					sch.Desc = c.(string)
+					if notice := c.(string); notice == "" {
+						sch.Desc = ""
+					} else {
+						sch.Desc = "特記事項: " + notice
+					}
 				}
 			}
 
-			if active && sch.Date.After(now) {
+			if active && sch.StartTime.After(now) {
 				activeSch = append(activeSch, sch)
 			}
 		}

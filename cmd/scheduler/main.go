@@ -7,14 +7,9 @@ import (
 	"fmt"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 )
-
-type duty struct {
-	Date  time.Time
-	Title string
-	Desc  string
-}
 
 // https://discord.com/developers/docs/resources/guild-scheduled-event
 type event struct {
@@ -22,6 +17,7 @@ type event struct {
 	Name               string `json:"name"`
 	Description        string `json:"description,omitempty"`
 	ScheduledStartTime string `json:"scheduled_start_time"`
+	ScheduledEndTime   string `json:"scheduled_end_time"`
 	EntityType         int    `json:"entity_type"`
 	GuildId            string `json:"guild_id,omitempty"`
 	ChannelId          string `json:"channel_id"`
@@ -33,40 +29,58 @@ const (
 )
 
 func main() {
+	spreadsheetId := os.Getenv("SPREADSHEET_ID")
+
 	scheduledEventsUrl := "https://discordapp.com/api/guilds/" + os.Getenv("DISCORD_GUILD_ID") + "/scheduled-events"
 	discodeAuthHeader := "Bot " + os.Getenv("DISCORD_BOT_TOKEN")
 	discordEventChannelId := os.Getenv("DISCORD_EVENT_CHANNEL_ID")
 	discordNotificationChannelId := os.Getenv("DISCORD_NOTIFICATION_CHANNEL_ID")
 
-	spreadsheetId := os.Getenv("SPREADSHEET_ID")
+	icalGCSBucket := os.Getenv("ICAL_GCS_BUCKET")
+	icalGCSPath := os.Getenv("ICAL_GCS_PATH")
+	icalTag := os.Getenv("ICAL_TAG")
+
+	tz, err := time.LoadLocation(os.Getenv("TZ"))
+	if err != nil {
+		panic(err)
+	}
+
+	discordRateLimitResetAfter := 0
 
 	ctx := context.Background()
 
 	existingEvents := []event{}
+	{
+		req, err := http.NewRequest("GET", scheduledEventsUrl, nil)
+		if err != nil {
+			panic(err)
+		}
+		req.Header.Add("Authorization", discodeAuthHeader)
+		req.Header.Add("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+		if err := json.NewDecoder(resp.Body).Decode(&existingEvents); err != nil {
+			panic(err)
+		}
 
-	req, err := http.NewRequest("GET", scheduledEventsUrl, nil)
-	if err != nil {
-		panic(err)
-	}
-	req.Header.Add("Authorization", discodeAuthHeader)
-	req.Header.Add("Content-Type", "application/json")
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		panic(err)
-	}
-	defer resp.Body.Close()
-	if err := json.NewDecoder(resp.Body).Decode(&existingEvents); err != nil {
-		panic(err)
+		discordRateLimitResetAfter, err = strconv.Atoi(resp.Header.Get("X-Ratelimit-Reset-After"))
+		if err != nil {
+			panic(err)
+		}
+		time.Sleep(time.Duration(discordRateLimitResetAfter) * time.Second)
 	}
 
 	activeTimestamps := []string{}
 
-	thisAndNextMonthSchedules, todayTime := getThisAndNextMonthSchedules(ctx, spreadsheetId)
+	thisAndNextMonthSchedules, todayTime := getThisAndNextMonthSchedules(ctx, spreadsheetId, tz)
 
 append:
 	for _, sch := range thisAndNextMonthSchedules {
 		fmt.Printf("%#v\n", sch)
-		timestamp := sch.Date.Format(DiscordISO8601)
+		timestamp := sch.StartTime.Format(DiscordISO8601)
 		activeTimestamps = append(activeTimestamps, timestamp)
 
 		for _, evt := range existingEvents {
@@ -84,15 +98,15 @@ append:
 		fmt.Println("append:", timestamp)
 
 		b := new(bytes.Buffer)
-		err := json.NewEncoder(b).Encode(event{
+		if err := json.NewEncoder(b).Encode(event{
 			Name:               sch.Title,
 			Description:        sch.Desc,
 			ScheduledStartTime: timestamp,
+			ScheduledEndTime:   sch.EndTime.Format(DiscordISO8601),
 			EntityType:         2, // means "VOICE"
 			ChannelId:          discordEventChannelId,
 			PrivacyLevel:       2, // means "GUILD_ONLY"
-		})
-		if err != nil {
+		}); err != nil {
 			panic(err)
 		}
 		req, err := http.NewRequest("POST", scheduledEventsUrl, b)
@@ -110,7 +124,11 @@ append:
 		fmt.Println("append:", resp.Status)
 
 		// wait in order to avoid rate limiting
-		time.Sleep(3 * time.Second)
+		discordRateLimitResetAfter, err = strconv.Atoi(resp.Header.Get("X-Ratelimit-Reset-After"))
+		if err != nil {
+			panic(err)
+		}
+		time.Sleep(time.Duration(discordRateLimitResetAfter) * time.Second)
 
 		if timestamp == todayTime.Format(DiscordISO8601) {
 			evt := event{}
@@ -148,11 +166,49 @@ cleanup:
 			panic(err)
 		}
 
+		discordRateLimitResetAfter, err = strconv.Atoi(resp.Header.Get("X-Ratelimit-Reset-After"))
+		if err != nil {
+			panic(err)
+		}
+
 		fmt.Println("cleanup:", resp.Status)
 
 		// wait in order to avoid rate limiting
-		time.Sleep(3 * time.Second)
+		time.Sleep(time.Duration(discordRateLimitResetAfter) * time.Second)
+
 	}
+
+	// export ics (iCal) file in GCS
+	time.Sleep(10 * time.Second)
+
+	events := []event{}
+	{
+		req, err := http.NewRequest("GET", scheduledEventsUrl, nil)
+		if err != nil {
+			panic(err)
+		}
+		req.Header.Add("Authorization", discodeAuthHeader)
+		req.Header.Add("Content-Type", "application/json")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			panic(err)
+		}
+		defer resp.Body.Close()
+		if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
+			panic(err)
+		}
+	}
+
+	icalEvents := []icalEvent{}
+	for _, evt := range events {
+		ie, err := convertIcalEvent(evt, tz)
+		if err != nil {
+			panic(err)
+		}
+		icalEvents = append(icalEvents, *ie)
+	}
+
+	updateICalendar(ctx, icalGCSBucket, icalGCSPath, icalEvents, icalTag)
 }
 
 func notifyEventToDiscordChannel(authHeader string, notificationChannelId string, evt event) error {
