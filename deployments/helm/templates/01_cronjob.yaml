@@ -25,6 +25,12 @@ spec:
               value: {{ .Values.discord.event_channel_id | quote }}
             - name: DISCORD_NOTIFICATION_CHANNEL_ID
               value: {{ .Values.discord.notification_channel_id | quote }}
+            - name: ICAL_GCS_BUCKET
+              value: {{ .Values.ical.gcs.bucket | quote }}
+            - name: ICAL_GCS_PATH
+              value: {{ .Values.ical.gcs.path | quote }}
+            - name: ICAL_TAG
+              value: {{ .Values.ical.tag | quote }}
             {{- range tuple "DISCORD_BOT_TOKEN" "SPREADSHEET_ID" }}
             - name: {{ . }}
               valueFrom:

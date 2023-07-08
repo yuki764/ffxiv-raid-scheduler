@@ -25,6 +25,9 @@ resources:
 # timezone when caluculating schedule
 timezone: Asia/Tokyo
 
+# Google Spreadsheet configurations
+spreadsheet_id: "Example"
+
 # Discord configurations
 discord:
   guild_id: "1111111111111111111"
@@ -32,5 +35,9 @@ discord:
   notification_channel_id: "3333333333333333333"
   bot_token: "TOKEN.EXAMPLE"
 
-# Google Spreadsheet configurations
-spreadsheet_id: "Example"
+# export ical format to GCS object
+ical:
+  tag: "Bahamut"
+  gcs:
+    bucket: "example-bucket"
+    path: "ical/example.ics"
