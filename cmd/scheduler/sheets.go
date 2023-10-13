@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"log/slog"
 	"strconv"
 	"strings"
 	"time"
@@ -17,10 +18,14 @@ type duty struct {
 	EndTime   time.Time
 }
 
-func getThisAndNextMonthSchedules(ctx context.Context, spreadsheetId string, tz *time.Location) ([]duty, time.Time) {
+type spreadsheet struct {
+	id string
+}
+
+func (s spreadsheet) getThisAndNextMonthSchedules(ctx context.Context, tz *time.Location) ([]duty, time.Time, error) {
 	srv, err := sheets.NewService(ctx)
 	if err != nil {
-		panic(err)
+		return nil, time.Now(), err
 	}
 
 	now := time.Now().In(tz)
@@ -30,38 +35,47 @@ func getThisAndNextMonthSchedules(ctx context.Context, spreadsheetId string, tz 
 
 	targetMonths := []struct {
 		Year  int
-		Month int
+		Month time.Month
 	}{}
 
-	spreadsheet, err := srv.Spreadsheets.Get(spreadsheetId).Do()
+	spreadsheet, err := srv.Spreadsheets.Get(s.id).Do()
 	if err != nil {
-		panic(err)
+		return nil, time.Now(), err
 	}
 
+	existThisMonthSheet := false
 	// check existence of month's name sheets
 	for _, cands := range []time.Time{
 		time.Date(thisYear, thisMonth, 1, 1, 1, 1, 1, tz),                          // this month
 		time.Date(thisYear, thisMonth, 1, 1, 1, 1, 1, tz).Add(32 * 24 * time.Hour), // next month
 	} {
 		for _, sheet := range spreadsheet.Sheets {
-			if sheet.Properties.Title == fmt.Sprint(int(cands.Month()))+"月" {
+			if sheet.Properties.Title == fmt.Sprintf("%d月", cands.Month()) {
 				targetMonths = append(targetMonths, struct {
 					Year  int
-					Month int
+					Month time.Month
 				}{
 					Year:  cands.Year(),
-					Month: int(cands.Month()),
+					Month: cands.Month(),
 				})
+
+				if thisMonth == cands.Month() {
+					existThisMonthSheet = true
+				}
 			}
 		}
 	}
 
+	if !existThisMonthSheet {
+		slog.Default().Warn("The sheet of this month doesn't exist.")
+	}
+
 	var activeSch []duty
 
-	for _, month := range targetMonths {
-		table, err := srv.Spreadsheets.Values.Get(spreadsheetId, fmt.Sprint(month.Month)+"月!A4:M100").Do()
+	for _, mo := range targetMonths {
+		table, err := srv.Spreadsheets.Values.Get(s.id, fmt.Sprintf("%d月!A4:M100", mo.Month)).Do()
 		if err != nil {
-			panic(err)
+			return nil, time.Now(), err
 		}
 
 		for _, row := range table.Values {
@@ -80,10 +94,10 @@ func getThisAndNextMonthSchedules(ctx context.Context, spreadsheetId string, tz 
 				case 1:
 					day, err = strconv.Atoi(strings.Split(c.(string), "/")[1])
 					if err != nil {
-						panic(err)
+						return nil, time.Now(), err
 					}
-					sch.StartTime = time.Date(month.Year, time.Month(month.Month), day, 21, 50, 0, 0, tz).UTC()
-					sch.EndTime = time.Date(month.Year, time.Month(month.Month), day, 23, 50, 0, 0, tz).UTC()
+					sch.StartTime = time.Date(mo.Year, mo.Month, day, 21, 50, 0, 0, tz).UTC()
+					sch.EndTime = time.Date(mo.Year, mo.Month, day, 23, 50, 0, 0, tz).UTC()
 				case 3:
 					if c == "有り" {
 						active = true
@@ -103,5 +117,5 @@ func getThisAndNextMonthSchedules(ctx context.Context, spreadsheetId string, tz 
 		}
 	}
 
-	return activeSch, time.Date(thisYear, thisMonth, thisDay, 21, 50, 0, 0, tz).UTC()
+	return activeSch, time.Date(thisYear, thisMonth, thisDay, 21, 50, 0, 0, tz).UTC(), nil
 }

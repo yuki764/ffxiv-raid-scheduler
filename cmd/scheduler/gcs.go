@@ -5,7 +5,6 @@ import (
 	"crypto/sha256"
 	_ "embed"
 	"encoding/base32"
-	"fmt"
 	"strings"
 	"time"
 
@@ -31,34 +30,37 @@ const (
 //go:embed templates/schedule.ics.go.tpl
 var tplFile []byte
 
-func updateICalendar(ctx context.Context, bucket string, path string, events []icalEvent, icalTag string) error {
+type ical struct {
+	tag       string
+	gcsBucket string
+	gcsPath   string
+}
+
+func (i ical) updateGcsObject(ctx context.Context, events []icalEvent) (string, error) {
 	client, err := storage.NewClient(ctx)
 	if err != nil {
-		return err
+		return "", err
 	}
-	bkt := client.Bucket(bucket)
-	obj := bkt.Object(path)
-	w := obj.NewWriter(ctx)
+	w := client.Bucket(i.gcsBucket).Object(i.gcsPath).NewWriter(ctx)
 	w.ObjectAttrs.ContentType = "text/calendar"
-	defer w.Close()
 
 	tpl, err := template.New("ics").Parse(string(tplFile))
 	if err != nil {
-		return err
+		return "", err
 	}
+
+	defer w.Close()
 	if err := tpl.Execute(w, map[string]interface{}{
-		"icalTag": icalTag,
+		"icalTag": i.tag,
 		"events":  events,
 	}); err != nil {
-		return err
+		return "", err
 	}
 
-	fmt.Printf("uploaded ical to: https://storage.googleapis.com/%s/%s\n", bucket, path)
-
-	return nil
+	return "https://storage.googleapis.com/" + i.gcsBucket + "/" + i.gcsPath, nil
 }
 
-func convertIcalEvent(evt event, tz *time.Location) (*icalEvent, error) {
+func convertIcalEvent(evt discordEvent, tz *time.Location) (*icalEvent, error) {
 	start, err := time.Parse(DiscordISO8601, evt.ScheduledStartTime)
 	if err != nil {
 		return nil, err
@@ -77,6 +79,6 @@ func convertIcalEvent(evt event, tz *time.Location) (*icalEvent, error) {
 		StartTime:   start.In(tz).Format(IcalDateFormat),
 		EndTime:     end.In(tz).Format(IcalDateFormat),
 		Timezone:    tz.String(),
-		Url:         fmt.Sprintf("https://discord.com/events/%s/%s", evt.GuildId, evt.Id),
+		Url:         "https://discord.com/events/" + evt.GuildId + "/" + evt.Id,
 	}, nil
 }
