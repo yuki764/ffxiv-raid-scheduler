@@ -4,6 +4,6 @@ description: FFXIV Raid Scheduler. Creating Discord Events, notifying to a Disco
 
 type: application
 
-version: 0.3.0
+version: 0.4.0
 
-appVersion: "0.2.0"
+appVersion: "0.3.0"
