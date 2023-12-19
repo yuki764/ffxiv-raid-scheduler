@@ -73,7 +73,21 @@ func (s spreadsheet) getThisAndNextMonthSchedules(ctx context.Context, tz *time.
 	var activeSch []duty
 
 	for _, mo := range targetMonths {
-		table, err := srv.Spreadsheets.Values.Get(s.id, fmt.Sprintf("%d月!A4:M100", mo.Month)).Do()
+		daysOfMonth := 31
+		switch mo.Month {
+		case time.February:
+			if mo.Year%4 == 0 {
+				daysOfMonth = 29
+			} else {
+				daysOfMonth = 28
+			}
+		case time.April, time.June, time.September, time.November:
+			daysOfMonth = 30
+		}
+		scheduleRange := fmt.Sprintf("%d月!A%d:M%d", mo.Month, 4, 3+daysOfMonth)
+		slog.Default().Info("Fetch Schedule from Range " + scheduleRange)
+
+		table, err := srv.Spreadsheets.Values.Get(s.id, scheduleRange).Do()
 		if err != nil {
 			return nil, time.Now(), err
 		}
