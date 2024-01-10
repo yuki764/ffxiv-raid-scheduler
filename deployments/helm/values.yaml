@@ -1,5 +1,5 @@
 image:
-  repository: gcr.io/neigepluie/ffxiv-raid-scheduler
+  repository: asia-docker.pkg.dev/project/repo/ffxiv-raid-scheduler
   pullPolicy: IfNotPresent
   # Overrides the image tag whose default is the chart appVersion.
   tag: ""
