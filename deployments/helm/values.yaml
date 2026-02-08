@@ -5,9 +5,10 @@ image:
   tag: ""
 
 # time to start job. default is 3:30 UTC (12:30 JST)
-cron:
-  hour: 3
-  minute: 30
+cronUtc:
+  hour: "*"
+  minute: "30"
+notifyUtcHour: 3 # 12:xx JST
 
 # Service Account for pods
 # Note: Spreadsheet API needs to authenticate as some Google prinsipal
