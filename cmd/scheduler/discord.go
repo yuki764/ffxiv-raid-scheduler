@@ -84,7 +84,7 @@ func (d discordHttp) notifyEvent(evt discordEvent) error {
 		return err
 	}
 
-	slog.Default().Info("Notified the event with the result "+`"`+resp.Status+`".`, "event", evt)
+	slog.Info("Notified the event with the result "+`"`+resp.Status+`".`, "event", evt)
 
 	return nil
 }

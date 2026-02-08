@@ -6,10 +6,11 @@ import (
 	"encoding/json"
 	"log/slog"
 	"os"
+	"strconv"
 	"time"
 )
 
-func main() {
+func init() {
 	slog.SetDefault(slog.New(slog.NewJSONHandler(os.Stdout, &slog.HandlerOptions{
 		// https://cloud.google.com/logging/docs/structured-logging
 		ReplaceAttr: func(_ []string, a slog.Attr) slog.Attr {
@@ -26,7 +27,9 @@ func main() {
 			return a
 		},
 	})))
+}
 
+func main() {
 	spreadsheet := &spreadsheet{
 		id: os.Getenv("SPREADSHEET_ID"),
 	}
@@ -44,9 +47,16 @@ func main() {
 		tag:       os.Getenv("ICAL_TAG"),
 	}
 
+	// this program expects to run at every hour
+	notifyUtcHour, err := strconv.Atoi(os.Getenv("NOTIFY_UTC_HOUR"))
+	if err != nil {
+		slog.Error("Failed to parse env NOTIFY_UTC_HOUR.", "error", err)
+		panic(err)
+	}
+
 	tz, err := time.LoadLocation(os.Getenv("TZ"))
 	if err != nil {
-		slog.Default().Error("Failed to load time location.", "error", err)
+		slog.Error("Failed to load time location.", "error", err)
 		panic(err)
 	}
 
@@ -56,13 +66,13 @@ func main() {
 	{
 		resp, err := discord.requestEventsApi("GET", "", nil)
 		if err != nil {
-			slog.Default().Error("Failed to get events from Discord.", "error", err)
+			slog.Error("Failed to get events from Discord.", "error", err)
 			panic(err)
 		}
 
 		defer resp.Body.Close()
 		if err := json.NewDecoder(resp.Body).Decode(&existingEvents); err != nil {
-			slog.Default().Error("Failed to decode json of events from Discord.", "error", err)
+			slog.Error("Failed to decode json of events from Discord.", "error", err)
 			panic(err)
 		}
 	}
@@ -71,30 +81,35 @@ func main() {
 
 	thisAndNextMonthSchedules, todayTime, err := spreadsheet.getThisAndNextMonthSchedules(ctx, tz)
 	if err != nil {
-		slog.Default().Error("Failed to get schedules from Spreadsheet.", "error", err)
+		slog.Error("Failed to get schedules from Spreadsheet.", "error", err)
 		panic(err)
 	}
 
 append:
 	for _, sch := range thisAndNextMonthSchedules {
-		slog.Default().Debug("Dump schedule struct.", "schedule", sch)
+		slog.Debug("Dump schedule struct.", "schedule", sch)
 		timestamp := sch.StartTime.Format(DiscordISO8601)
 		activeTimestamps = append(activeTimestamps, timestamp)
 
 		for _, evt := range existingEvents {
 			if timestamp == evt.ScheduledStartTime {
-				slog.Default().Info("The event on " + timestamp + " already exists.")
+				slog.Info("The event on " + timestamp + " already exists.")
 				if timestamp == todayTime.Format(DiscordISO8601) {
-					if err := discord.notifyEvent(evt); err != nil {
-						slog.Default().Error("Failed to notify event to Discord channel.", "error", err)
-						panic(err)
+					// at <NOTIFY_UTC_HOUR>:xx UTC, notify today's event to Discord text channel
+					if notifyUtcHour == time.Now().UTC().Hour() {
+						if err := discord.notifyEvent(evt); err != nil {
+							slog.Error("Failed to notify event to Discord text channel.", "error", err)
+							panic(err)
+						}
+					} else {
+						slog.Info("notification skipped")
 					}
 				}
 				continue append
 			}
 		}
 
-		slog.Default().Info("Appending the event on " + timestamp + ".")
+		slog.Info("Appending the event on " + timestamp + ".")
 
 		b := new(bytes.Buffer)
 		if err := json.NewEncoder(b).Encode(discordEvent{
@@ -106,29 +121,29 @@ append:
 			ChannelId:          discord.eventChannelId,
 			PrivacyLevel:       2, // means "GUILD_ONLY"
 		}); err != nil {
-			slog.Default().Error("Failed to encode Discord event JSON.", "error", err)
+			slog.Error("Failed to encode Discord event JSON.", "error", err)
 			panic(err)
 		}
 
 		resp, err := discord.requestEventsApi("POST", "", b)
 		if err != nil {
-			slog.Default().Error("Failed to post a event on "+timestamp+" to Discord.", "error", err)
+			slog.Error("Failed to post a event on "+timestamp+" to Discord.", "error", err)
 			panic(err)
 		}
 
-		slog.Default().Info("Appended the event with the result " + `"` + resp.Status + `".`)
+		slog.Info("Appended the event with the result " + `"` + resp.Status + `".`)
 
 		if timestamp == todayTime.Format(DiscordISO8601) {
 			evt := discordEvent{}
 
 			defer resp.Body.Close()
 			if err := json.NewDecoder(resp.Body).Decode(&evt); err != nil {
-				slog.Default().Error("Failed to decode Discord event JSON.", "error", err)
+				slog.Error("Failed to decode Discord event JSON.", "error", err)
 				panic(err)
 			}
 
 			if err := discord.notifyEvent(evt); err != nil {
-				slog.Default().Error("Failed to notify event to Discord channel.", "error", err)
+				slog.Error("Failed to notify event to Discord channel.", "error", err)
 				panic(err)
 			}
 		}
@@ -142,16 +157,16 @@ cleanup:
 			}
 		}
 
-		slog.Default().Info("Cleaning up the event " + existingEvt.Id)
+		slog.Info("Cleaning up the event " + existingEvt.Id)
 
 		// if an existing event is not active (fetched from Spreadsheet currently), deleting event
 		resp, err := discord.requestEventsApi("DELETE", "/"+existingEvt.Id, nil)
 		if err != nil {
-			slog.Default().Error("Failed to delete the event "+existingEvt.Id+" from Discord.", "error", err)
+			slog.Error("Failed to delete the event "+existingEvt.Id+" from Discord.", "error", err)
 			panic(err)
 		}
 
-		slog.Default().Info("Cleaned up the event "+existingEvt.Id+" with the result "+`"`+resp.Status+`".`, "event", existingEvt)
+		slog.Info("Cleaned up the event "+existingEvt.Id+" with the result "+`"`+resp.Status+`".`, "event", existingEvt)
 	}
 
 	// export ics (iCal) file in GCS
@@ -161,13 +176,13 @@ cleanup:
 	{
 		resp, err := discord.requestEventsApi("GET", "", nil)
 		if err != nil {
-			slog.Default().Error("Failed to get events from Discord.", "error", err)
+			slog.Error("Failed to get events from Discord.", "error", err)
 			panic(err)
 		}
 
 		defer resp.Body.Close()
 		if err := json.NewDecoder(resp.Body).Decode(&events); err != nil {
-			slog.Default().Error("Failed to decode Discord events JSON.", "error", err)
+			slog.Error("Failed to decode Discord events JSON.", "error", err)
 			panic(err)
 		}
 	}
@@ -176,7 +191,7 @@ cleanup:
 	for _, evt := range events {
 		ie, err := convertIcalEvent(evt, tz)
 		if err != nil {
-			slog.Default().Error("Failed convert a event from Discord format to ical format.", "error", err)
+			slog.Error("Failed convert a event from Discord format to ical format.", "error", err)
 			panic(err)
 		}
 		icalEvents = append(icalEvents, *ie)
@@ -184,9 +199,9 @@ cleanup:
 
 	icalUrl, err := ical.updateGcsObject(ctx, icalEvents)
 	if err != nil {
-		slog.Default().Error("Failed to upload a ical file to GCS.", "error", err)
+		slog.Error("Failed to upload a ical file to GCS.", "error", err)
 		panic(err)
 	}
 
-	slog.Default().Info("Uploaded ical file to GCS: "+icalUrl, "url", icalUrl)
+	slog.Info("Uploaded ical file to GCS: "+icalUrl, "url", icalUrl)
 }

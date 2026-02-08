@@ -67,7 +67,7 @@ func (s spreadsheet) getThisAndNextMonthSchedules(ctx context.Context, tz *time.
 	}
 
 	if !existThisMonthSheet {
-		slog.Default().Warn("The sheet of this month doesn't exist.")
+		slog.Warn("The sheet of this month doesn't exist.")
 	}
 
 	var activeSch []duty
@@ -85,7 +85,7 @@ func (s spreadsheet) getThisAndNextMonthSchedules(ctx context.Context, tz *time.
 			daysOfMonth = 30
 		}
 		scheduleRange := fmt.Sprintf("%d月!A%d:M%d", mo.Month, 4, 3+daysOfMonth)
-		slog.Default().Info("Fetch Schedule from Range " + scheduleRange)
+		slog.Info("Fetch Schedule from Range " + scheduleRange)
 
 		table, err := srv.Spreadsheets.Values.Get(s.id, scheduleRange).Do()
 		if err != nil {
@@ -104,6 +104,7 @@ func (s spreadsheet) getThisAndNextMonthSchedules(ctx context.Context, tz *time.
 						sch.Title = "活動"
 					} else {
 						sch.Title = c.(string)
+						active = true
 					}
 				case 1:
 					day, err = strconv.Atoi(strings.Split(c.(string), "/")[1])
