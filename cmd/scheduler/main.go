@@ -53,6 +53,8 @@ func main() {
 		slog.Error("Failed to parse env NOTIFY_UTC_HOUR.", "error", err)
 		panic(err)
 	}
+	// at <NOTIFY_UTC_HOUR>:xx UTC, notify today's event to Discord text channel
+	notifyDiscord := (notifyUtcHour == time.Now().UTC().Hour())
 
 	tz, err := time.LoadLocation(os.Getenv("TZ"))
 	if err != nil {
@@ -95,8 +97,7 @@ append:
 			if timestamp == evt.ScheduledStartTime {
 				slog.Info("The event on " + timestamp + " already exists.")
 				if timestamp == todayTime.Format(DiscordISO8601) {
-					// at <NOTIFY_UTC_HOUR>:xx UTC, notify today's event to Discord text channel
-					if notifyUtcHour == time.Now().UTC().Hour() {
+					if notifyDiscord {
 						if err := discord.notifyEvent(evt); err != nil {
 							slog.Error("Failed to notify event to Discord text channel.", "error", err)
 							panic(err)
@@ -142,9 +143,13 @@ append:
 				panic(err)
 			}
 
-			if err := discord.notifyEvent(evt); err != nil {
-				slog.Error("Failed to notify event to Discord channel.", "error", err)
-				panic(err)
+			if notifyDiscord {
+				if err := discord.notifyEvent(evt); err != nil {
+					slog.Error("Failed to notify event to Discord channel.", "error", err)
+					panic(err)
+				}
+			} else {
+				slog.Info("notification skipped")
 			}
 		}
 	}
