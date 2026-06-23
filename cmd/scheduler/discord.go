@@ -61,9 +61,13 @@ func (d discordHttp) requestEventsApi(method string, suffix string, body io.Read
 
 func (d discordHttp) notifyEvent(evt discordEvent) error {
 	msg := &struct {
-		Content string `json:"content"`
+		Content      string `json:"content"`
+		Nonce        string `json:"nonce"`
+		EnforceNonce bool   `json:"enforce_nonce"`
 	}{
-		Content: fmt.Sprintf("今日は%s日クポ。 %s\nhttps://discord.com/events/%s/%s\n", evt.Name, evt.Description, evt.GuildId, evt.Id),
+		Content:      fmt.Sprintf("今日は%s日クポ。 %s\nhttps://discord.com/events/%s/%s\n", evt.Name, evt.Description, evt.GuildId, evt.Id),
+		Nonce:        evt.ScheduledStartTime,
+		EnforceNonce: true,
 	}
 	b := new(bytes.Buffer)
 	err := json.NewEncoder(b).Encode(msg)
